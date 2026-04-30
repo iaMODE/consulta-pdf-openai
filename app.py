@@ -75,12 +75,22 @@ Referencias:
 - [artículo/página/sección/párrafo donde aparece]
 """
 
-        response = client.responses.create(
-            model="gpt-4.1-mini",
-            input=prompt
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Eres un asistente que responde únicamente con base en el documento proporcionado. No inventes información."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.1
         )
 
-        answer = response.output[0].content[0].text
+        answer = response.choices[0].message.content
 
         return jsonify({"answer": answer})
 
