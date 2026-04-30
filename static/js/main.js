@@ -68,19 +68,23 @@ function normalizeText(text) {
     .trim();
 }
 
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function spacedNumberPattern(number) {
-  return number
-    .split("")
-    .map(char => escapeRegExp(char))
-    .join("\\s*");
+// -----------------------------
+// DETECTAR MODO LISTA (NUEVO)
+// -----------------------------
+function isListQuery(question) {
+  const q = normalizeText(question);
+  return (
+    q.includes("lista") ||
+    q.includes("todos los articulos") ||
+    q.includes("donde se menciona") ||
+    q.includes("donde aparezca") ||
+    q.includes("donde se habla") ||
+    q.includes("articulos sobre")
+  );
 }
 
 // -----------------------------
-// DETECTAR ARTÍCULOS EN LA PREGUNTA
+// DETECTAR ARTÍCULOS
 // -----------------------------
 function extractArticleNumbers(question) {
   const normalized = normalizeText(question);
@@ -90,10 +94,7 @@ function extractArticleNumbers(question) {
     /articulo\s+(\d+[a-z]?)/gi,
     /articulos\s+(\d+[a-z]?)/gi,
     /art\.?\s*(\d+[a-z]?)/gi,
-    /arts\.?\s*(\d+[a-z]?)/gi,
-    /\bart\s+(\d+[a-z]?)/gi,
-    /\bnum\.?\s*(\d+[a-z]?)/gi,
-    /\bnumero\s+(\d+[a-z]?)/gi
+    /arts\.?\s*(\d+[a-z]?)/gi
   ];
 
   patterns.forEach(pattern => {
@@ -107,66 +108,36 @@ function extractArticleNumbers(question) {
 }
 
 // -----------------------------
-// PALABRAS CLAVE
+// KEYWORDS
 // -----------------------------
 function getKeywords(question) {
-  const stopwords = [
-    "que", "qué", "cual", "cuál", "cuales", "cuáles", "como", "cómo",
-    "donde", "dónde", "cuando", "cuándo", "quien", "quién", "quienes",
-    "de", "del", "la", "las", "el", "los", "un", "una", "unos", "unas",
-    "y", "o", "u", "en", "por", "para", "con", "sin", "sobre", "segun",
-    "según", "al", "a", "me", "se", "es", "son", "dice", "indica",
-    "documento", "pdf", "articulo", "artículo", "articulos", "artículos",
-    "pagina", "página"
-  ];
-
   return normalizeText(question)
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
-    .filter(word => word.length >= 4 && !stopwords.includes(word));
+    .filter(w => w.length >= 4);
 }
 
 // -----------------------------
-// BUSCAR PÁGINAS POR ARTÍCULO
+// BUSCAR PÁGINAS
 // -----------------------------
-function getPagesByArticles(articleNumbers) {
-  if (!articleNumbers.length) return [];
+function getRelevantPages(question) {
+  if (!pdfPages.length) return pdfText;
 
-  const matchedPages = [];
+  const listMode = isListQuery(question);
+  const keywords = getKeywords(question);
+
+  let selectedPages = [];
 
   pdfPages.forEach(page => {
-    const normalized = normalizeText(page.text);
+    const text = normalizeText(page.text);
     let score = 0;
 
-    articleNumbers.forEach(number => {
-      const safeNumber = escapeRegExp(number);
-      const spacedNumber = spacedNumberPattern(number);
-
-      const articlePatterns = [
-        new RegExp(`\\barticulo\\s+${safeNumber}\\b`, "i"),
-        new RegExp(`\\barticulos\\s+${safeNumber}\\b`, "i"),
-        new RegExp(`\\bart\\.?\\s*${safeNumber}\\b`, "i"),
-        new RegExp(`\\barts\\.?\\s*${safeNumber}\\b`, "i"),
-        new RegExp(`\\bart\\.?\\s*${spacedNumber}\\b`, "i"),
-        new RegExp(`\\barticulo\\s+${spacedNumber}\\b`, "i"),
-        new RegExp(`\\b${safeNumber}\\s*\\.\\s*-`, "i"),
-        new RegExp(`\\b${safeNumber}\\s*-`, "i"),
-        new RegExp(`\\b${safeNumber}\\s*\\.`, "i")
-      ];
-
-      articlePatterns.forEach(pattern => {
-        if (pattern.test(normalized)) {
-          score += 30;
-        }
-      });
-
-      if (normalized.includes(number)) {
-        score += 2;
-      }
+    keywords.forEach(k => {
+      if (text.includes(k)) score++;
     });
 
     if (score > 0) {
-      matchedPages.push({
+      selectedPages.push({
         pageNumber: page.pageNumber,
         text: page.text,
         score
@@ -174,85 +145,26 @@ function getPagesByArticles(articleNumbers) {
     }
   });
 
-  return matchedPages.sort((a, b) => b.score - a.score);
-}
+  selectedPages = selectedPages.sort((a, b) => b.score - a.score);
 
-// -----------------------------
-// BUSCAR PÁGINAS RELEVANTES
-// -----------------------------
-function getRelevantPages(question) {
-  if (!pdfPages.length) return pdfText;
+  // ⚠️ DIFERENCIA CLAVE
+  const limit = listMode ? 15 : 6;
 
-  const articleNumbers = extractArticleNumbers(question);
-  const articleMatches = getPagesByArticles(articleNumbers);
+  const pages = selectedPages.slice(0, limit);
 
-  const selectedPageNumbers = new Set();
+  const set = new Set();
 
-  // PRIORIDAD 1: ARTÍCULOS MENCIONADOS
-  if (articleMatches.length) {
-    articleMatches.slice(0, 3).forEach(page => {
-      selectedPageNumbers.add(page.pageNumber - 1);
-      selectedPageNumbers.add(page.pageNumber);
-      selectedPageNumbers.add(page.pageNumber + 1);
-      selectedPageNumbers.add(page.pageNumber + 2);
-    });
-
-    return pdfPages
-      .filter(page => selectedPageNumbers.has(page.pageNumber))
-      .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
-      .join("");
-  }
-
-  // PRIORIDAD 2: PALABRAS CLAVE
-  const keywords = getKeywords(question);
-
-  if (!keywords.length) {
-    return pdfPages
-      .slice(0, 10)
-      .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
-      .join("");
-  }
-
-  const scoredPages = pdfPages.map(page => {
-    const normalized = normalizeText(page.text);
-    let score = 0;
-
-    keywords.forEach(keyword => {
-      const safeKeyword = escapeRegExp(keyword);
-      const matches = normalized.match(new RegExp(`\\b${safeKeyword}\\b`, "g"));
-      if (matches) score += matches.length;
-
-      if (normalized.includes(keyword)) score += 1;
-    });
-
-    return {
-      pageNumber: page.pageNumber,
-      text: page.text,
-      score
-    };
-  });
-
-  const topPages = scoredPages
-    .filter(page => page.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
-
-  if (!topPages.length) {
-    return pdfPages
-      .slice(0, 10)
-      .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
-      .join("");
-  }
-
-  topPages.forEach(page => {
-    selectedPageNumbers.add(page.pageNumber - 1);
-    selectedPageNumbers.add(page.pageNumber);
-    selectedPageNumbers.add(page.pageNumber + 1);
+  pages.forEach(p => {
+    set.add(p.pageNumber);
+    if (!listMode) {
+      set.add(p.pageNumber - 1);
+      set.add(p.pageNumber + 1);
+    }
   });
 
   return pdfPages
-    .filter(page => selectedPageNumbers.has(page.pageNumber))
-    .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
+    .filter(p => set.has(p.pageNumber))
+    .map(p => `\n\n--- PÁGINA PDF ${p.pageNumber} ---\n${p.text}`)
     .join("");
 }
 
@@ -271,87 +183,33 @@ async function processPdfFile(file) {
   pdfText = "";
   pdfPages = [];
 
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-    let fullText = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
 
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
+    const text = content.items.map(i => i.str).join(" ");
 
-      const pageText = content.items.map(item => item.str).join(" ");
-
-      pdfPages.push({
-        pageNumber: i,
-        text: pageText
-      });
-
-      fullText += `\n\n--- PÁGINA PDF ${i} ---\n${pageText}`;
-    }
-
-    pdfText = fullText.trim();
-
-    if (!pdfText) {
-      pdfTextBox.textContent = "No se pudo extraer texto (PDF escaneado).";
-      return;
-    }
-
-    pdfTextBox.textContent = pdfText;
-
-  } catch (err) {
-    pdfTextBox.textContent = "Error procesando PDF: " + err.message;
-    console.error(err);
-  }
-}
-
-// -----------------------------
-// CARGA PDF CON PDF.JS
-// -----------------------------
-pdfFile.addEventListener("change", async () => {
-  const file = pdfFile.files[0];
-  await processPdfFile(file);
-});
-
-// -----------------------------
-// ARRASTRAR Y SOLTAR PDF
-// -----------------------------
-if (uploadBox) {
-  ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
-    uploadBox.addEventListener(eventName, event => {
-      event.preventDefault();
-      event.stopPropagation();
+    pdfPages.push({
+      pageNumber: i,
+      text
     });
-  });
+  }
 
-  uploadBox.addEventListener("dragover", () => {
-    uploadBox.classList.add("drag-over");
-  });
-
-  uploadBox.addEventListener("dragleave", () => {
-    uploadBox.classList.remove("drag-over");
-  });
-
-  uploadBox.addEventListener("drop", async event => {
-    uploadBox.classList.remove("drag-over");
-
-    const file = event.dataTransfer.files[0];
-
-    if (!file) return;
-
-    if (file.type !== "application/pdf") {
-      pdfTextBox.textContent = "Solo se permiten PDFs.";
-      return;
-    }
-
-    const dataTransfer = new DataTransfer();
-    dataTransfer.items.add(file);
-    pdfFile.files = dataTransfer.files;
-
-    await processPdfFile(file);
-  });
+  pdfTextBox.textContent = "PDF cargado correctamente.";
 }
+
+// -----------------------------
+// ENTER PARA ENVIAR (NUEVO)
+// -----------------------------
+questionInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    askBtn.click();
+  }
+});
 
 // -----------------------------
 // PREGUNTAR
@@ -360,74 +218,38 @@ askBtn.addEventListener("click", async () => {
   const apiKey = apiKeyInput.value.trim();
   const question = questionInput.value.trim();
 
-  if (!apiKey) {
-    answerBox.textContent = "Debes introducir tu API Key.";
-    return;
-  }
+  if (!apiKey || !pdfPages.length || !question) return;
 
-  if (!pdfText) {
-    answerBox.textContent = "Primero carga un PDF.";
-    return;
-  }
-
-  if (!question) {
-    answerBox.textContent = "Escribe una pregunta.";
-    return;
-  }
-
-  const articleNumbers = extractArticleNumbers(question);
   const relevantText = getRelevantPages(question);
 
-  answerBox.textContent = "Consultando páginas y artículos relevantes...";
+  answerBox.textContent = "Consultando...";
 
-  try {
-    const response = await fetch("/ask", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        api_key: apiKey,
-        pdf_text: relevantText,
-        question: question,
-        detected_articles: articleNumbers
-      }),
-    });
+  const response = await fetch("/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: apiKey,
+      pdf_text: relevantText,
+      question
+    })
+  });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "Error IA");
-    }
-
-    answerBox.textContent = data.answer;
-
-  } catch (err) {
-    answerBox.textContent = "Error al consultar: " + err.message;
-    console.error(err);
-  }
+  const data = await response.json();
+  answerBox.textContent = data.answer;
 });
 
 // -----------------------------
 // COPIAR
 // -----------------------------
 copyBtn.addEventListener("click", async () => {
-  const text = answerBox.textContent;
-  if (!text) return;
-
-  await navigator.clipboard.writeText(text);
-  copyBtn.textContent = "✓";
-  setTimeout(() => (copyBtn.textContent = "⧉"), 1000);
+  await navigator.clipboard.writeText(answerBox.textContent);
 });
 
 // -----------------------------
 // DESCARGAR
 // -----------------------------
 saveBtn.addEventListener("click", () => {
-  const text = answerBox.textContent;
-  if (!text) return;
-
-  const blob = new Blob([text], { type: "text/plain" });
+  const blob = new Blob([answerBox.textContent], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
