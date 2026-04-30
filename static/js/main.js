@@ -1,4 +1,5 @@
 let pdfText = "";
+let pdfPages = [];
 
 // ELEMENTOS
 const apiKeyInput = document.getElementById("apiKey");
@@ -47,13 +48,189 @@ deleteKeyBtn.addEventListener("click", () => {
 // -----------------------------
 resetBtn.addEventListener("click", () => {
   pdfText = "";
+  pdfPages = [];
   pdfTextBox.textContent = "El texto de tu documento aparecerá aquí.";
   questionInput.value = "";
   answerBox.textContent = "La respuesta aparecerá aquí.";
 });
 
 // -----------------------------
-// CARGA PDF (FRONTEND CON PDF.JS)
+// NORMALIZAR TEXTO
+// -----------------------------
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+// -----------------------------
+// DETECTAR ARTÍCULOS EN LA PREGUNTA
+// -----------------------------
+function extractArticleNumbers(question) {
+  const normalized = normalizeText(question);
+  const articleNumbers = new Set();
+
+  const patterns = [
+    /articulo\s+(\d+[a-z]?)/gi,
+    /articulos\s+(\d+[a-z]?)/gi,
+    /art\.\s*(\d+[a-z]?)/gi,
+    /arts\.\s*(\d+[a-z]?)/gi
+  ];
+
+  patterns.forEach(pattern => {
+    let match;
+    while ((match = pattern.exec(normalized)) !== null) {
+      articleNumbers.add(match[1]);
+    }
+  });
+
+  return Array.from(articleNumbers);
+}
+
+// -----------------------------
+// PALABRAS CLAVE
+// -----------------------------
+function getKeywords(question) {
+  const stopwords = [
+    "que", "qué", "cual", "cuál", "cuales", "cuáles", "como", "cómo",
+    "donde", "dónde", "cuando", "cuándo", "quien", "quién", "quienes",
+    "de", "del", "la", "las", "el", "los", "un", "una", "unos", "unas",
+    "y", "o", "u", "en", "por", "para", "con", "sin", "sobre", "segun",
+    "según", "al", "a", "me", "se", "es", "son", "dice", "indica",
+    "documento", "pdf", "articulo", "artículo", "articulos", "artículos",
+    "pagina", "página"
+  ];
+
+  return normalizeText(question)
+    .replace(/[^\w\s]/g, " ")
+    .split(/\s+/)
+    .filter(word => word.length >= 4 && !stopwords.includes(word));
+}
+
+// -----------------------------
+// BUSCAR PÁGINAS POR ARTÍCULO
+// -----------------------------
+function getPagesByArticles(articleNumbers) {
+  if (!articleNumbers.length) return [];
+
+  const matchedPages = [];
+
+  pdfPages.forEach(page => {
+    const normalized = normalizeText(page.text);
+
+    let score = 0;
+
+    articleNumbers.forEach(number => {
+      const articlePatterns = [
+        new RegExp(`\\barticulo\\s+${number}\\b`, "i"),
+        new RegExp(`\\bart\\.\\s*${number}\\b`, "i"),
+        new RegExp(`\\barts\\.\\s*${number}\\b`, "i"),
+        new RegExp(`\\barticulos\\s+${number}\\b`, "i")
+      ];
+
+      articlePatterns.forEach(pattern => {
+        if (pattern.test(normalized)) {
+          score += 20;
+        }
+      });
+
+      if (normalized.includes(number)) {
+        score += 2;
+      }
+    });
+
+    if (score > 0) {
+      matchedPages.push({
+        pageNumber: page.pageNumber,
+        text: page.text,
+        score
+      });
+    }
+  });
+
+  return matchedPages.sort((a, b) => b.score - a.score);
+}
+
+// -----------------------------
+// BUSCAR PÁGINAS RELEVANTES
+// -----------------------------
+function getRelevantPages(question) {
+  if (!pdfPages.length) return pdfText;
+
+  const articleNumbers = extractArticleNumbers(question);
+  const articleMatches = getPagesByArticles(articleNumbers);
+
+  const selectedPageNumbers = new Set();
+
+  // PRIORIDAD 1: ARTÍCULOS MENCIONADOS
+  if (articleMatches.length) {
+    articleMatches.slice(0, 5).forEach(page => {
+      selectedPageNumbers.add(page.pageNumber);
+      selectedPageNumbers.add(page.pageNumber - 1);
+      selectedPageNumbers.add(page.pageNumber + 1);
+    });
+
+    return pdfPages
+      .filter(page => selectedPageNumbers.has(page.pageNumber))
+      .map(page => `\n\n--- PÁGINA ${page.pageNumber} ---\n${page.text}`)
+      .join("");
+  }
+
+  // PRIORIDAD 2: PALABRAS CLAVE
+  const keywords = getKeywords(question);
+
+  if (!keywords.length) {
+    return pdfPages
+      .slice(0, 10)
+      .map(page => `\n\n--- PÁGINA ${page.pageNumber} ---\n${page.text}`)
+      .join("");
+  }
+
+  const scoredPages = pdfPages.map(page => {
+    const normalized = normalizeText(page.text);
+    let score = 0;
+
+    keywords.forEach(keyword => {
+      const matches = normalized.match(new RegExp(`\\b${keyword}\\b`, "g"));
+      if (matches) score += matches.length;
+
+      if (normalized.includes(keyword)) score += 1;
+    });
+
+    return {
+      pageNumber: page.pageNumber,
+      text: page.text,
+      score
+    };
+  });
+
+  const topPages = scoredPages
+    .filter(page => page.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
+
+  if (!topPages.length) {
+    return pdfPages
+      .slice(0, 10)
+      .map(page => `\n\n--- PÁGINA ${page.pageNumber} ---\n${page.text}`)
+      .join("");
+  }
+
+  topPages.forEach(page => {
+    selectedPageNumbers.add(page.pageNumber);
+    selectedPageNumbers.add(page.pageNumber - 1);
+    selectedPageNumbers.add(page.pageNumber + 1);
+  });
+
+  return pdfPages
+    .filter(page => selectedPageNumbers.has(page.pageNumber))
+    .map(page => `\n\n--- PÁGINA ${page.pageNumber} ---\n${page.text}`)
+    .join("");
+}
+
+// -----------------------------
+// CARGA PDF CON PDF.JS
 // -----------------------------
 pdfFile.addEventListener("change", async () => {
   const file = pdfFile.files[0];
@@ -64,12 +241,12 @@ pdfFile.addEventListener("change", async () => {
     return;
   }
 
-  pdfTextBox.textContent = "Procesando PDF (rápido)...";
+  pdfTextBox.textContent = "Procesando PDF...";
   pdfText = "";
+  pdfPages = [];
 
   try {
     const arrayBuffer = await file.arrayBuffer();
-
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
     let fullText = "";
@@ -80,7 +257,12 @@ pdfFile.addEventListener("change", async () => {
 
       const pageText = content.items.map(item => item.str).join(" ");
 
-      fullText += `\n\n--- PÁGINA ${i} ---\n` + pageText;
+      pdfPages.push({
+        pageNumber: i,
+        text: pageText
+      });
+
+      fullText += `\n\n--- PÁGINA ${i} ---\n${pageText}`;
     }
 
     pdfText = fullText.trim();
@@ -120,7 +302,9 @@ askBtn.addEventListener("click", async () => {
     return;
   }
 
-  answerBox.textContent = "Consultando...";
+  const relevantText = getRelevantPages(question);
+
+  answerBox.textContent = "Consultando páginas y artículos relevantes...";
 
   try {
     const response = await fetch("/ask", {
@@ -130,7 +314,7 @@ askBtn.addEventListener("click", async () => {
       },
       body: JSON.stringify({
         api_key: apiKey,
-        pdf_text: pdfText,
+        pdf_text: relevantText,
         question: question,
       }),
     });

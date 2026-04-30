@@ -58,21 +58,26 @@ Pregunta del usuario:
 {question}
 
 Reglas obligatorias:
-- Responde de forma directa, breve y clara.
-- No des explicaciones largas si no son necesarias.
+- Responde de forma directa, breve y exacta.
+- Usa exclusivamente el texto del documento proporcionado.
 - No uses conocimiento externo.
 - No inventes información.
-- Si la respuesta no está en el documento, responde exactamente:
-"No encontré esa información en el documento cargado."
-- Incluye referencias concretas del propio documento: artículo, página, título, capítulo, sección, numeral o párrafo.
-- Si el documento no contiene número de página visible, usa la referencia textual más cercana disponible.
+- No completes datos ausentes.
+- Si no encuentras base suficiente en el documento proporcionado, responde exactamente:
+"No encontré base suficiente en el documento cargado."
+- Cada respuesta debe incluir referencias exactas.
+- Para documentos jurídicos, prioriza la referencia al artículo.
+- Cuando exista artículo, cita primero el artículo y luego la página.
+- Si no existe artículo visible, cita página, título, capítulo, sección, numeral o párrafo.
+- No cites artículos que no aparezcan en el texto proporcionado.
+- No cites páginas que no aparezcan en el texto proporcionado.
 
 Formato de respuesta:
 Respuesta:
 [respuesta directa]
 
 Referencias:
-- [artículo/página/sección/párrafo donde aparece]
+- [artículo y página / o página, título, capítulo, sección, numeral o párrafo]
 """
 
         response = client.chat.completions.create(
@@ -80,7 +85,7 @@ Referencias:
             messages=[
                 {
                     "role": "system",
-                    "content": "Eres un asistente que responde únicamente con base en el documento proporcionado. No inventes información."
+                    "content": "Eres un asistente jurídico documental. Respondes únicamente con base en el documento proporcionado, sin inventar información y citando referencias exactas."
                 },
                 {
                     "role": "user",
