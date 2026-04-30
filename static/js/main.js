@@ -93,7 +93,8 @@ pdfFile.addEventListener("change", async () => {
     pdfTextBox.textContent = pdfText;
 
   } catch (err) {
-    pdfTextBox.textContent = "Error procesando PDF.";
+    pdfTextBox.textContent = "Error procesando PDF: " + err.message;
+    console.error(err);
   }
 });
 
@@ -143,7 +144,8 @@ askBtn.addEventListener("click", async () => {
     answerBox.textContent = data.answer;
 
   } catch (err) {
-    answerBox.textContent = "Error al consultar.";
+    answerBox.textContent = "Error al consultar: " + err.message;
+    console.error(err);
   }
 });
 
