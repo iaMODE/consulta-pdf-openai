@@ -154,6 +154,13 @@ button {
   background: #304057;
 }
 
+.upload-box.drag-over {
+  background: #12344f;
+  border-color: #38bdf8;
+  color: #7dd3fc;
+  transform: scale(1.01);
+}
+
 .upload-icon {
   font-size: 38px;
   line-height: 1;
