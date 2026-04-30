@@ -77,7 +77,17 @@ Respuesta:
 [respuesta directa]
 
 Referencias:
-- [artículo y página / o página, título, capítulo, sección, numeral o párrafo]
+- [Artículo correspondiente si existe]
+
+Reglas de referencia:
+- Si el documento muestra número de página visible (página impresa), úsalo como "Página oficial".
+- Si no puedes identificar claramente una página oficial en el texto, NO la inventes.
+- Siempre incluye la "Página PDF" basada en el marcador --- PÁGINA X ---.
+- Si existe página oficial, muestra:
+  - Página oficial: [número]
+  - Página PDF: [número]
+- Si NO existe página oficial, muestra SOLO:
+  - Página PDF: [número]
 """
 
         response = client.chat.completions.create(
