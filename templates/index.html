@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Consulta PDF OpenAI | iaMODE</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+
+    <header class="topbar">
+      <a class="mega-btn" href="https://www.iamode.one/" target="_blank" rel="noopener">
+        Mega Menú
+      </a>
+
+      <div class="api-tools">
+        <input
+          type="password"
+          id="apiKey"
+          placeholder="API Key de OpenAI"
+          autocomplete="off"
+        />
+        <button id="saveKeyBtn" class="small-btn">Guardar</button>
+        <button id="deleteKeyBtn" class="small-btn muted">Borrar</button>
+        <button id="resetBtn" class="icon-btn" title="Reiniciar app">↻</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <h1>Consulta PDF</h1>
+      <p>Sube tu PDF y haz preguntas. Obtén información fiel al documento.</p>
+      <p id="keyStatus" class="status-text">Tu API Key se guarda solo en este navegador.</p>
+    </section>
+
+    <main class="main-grid">
+      <section class="panel">
+        <label class="upload-box" for="pdfFile">
+          <input type="file" id="pdfFile" accept="application/pdf" hidden />
+          <span class="upload-icon">☁</span>
+          <strong>Haz clic para subir PDF o arrastra y suelta</strong>
+          <small>Solo se aceptan archivos .pdf</small>
+        </label>
+
+        <div class="document-box">
+          <h2>Contenido del Documento</h2>
+          <div class="text-viewer" id="pdfText">
+            El texto de tu documento aparecerá aquí.
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Haz una pregunta sobre el documento:</h2>
+
+        <div class="question-row">
+          <textarea
+            id="question"
+            placeholder="Carga un PDF para hacer preguntas"
+          ></textarea>
+          <button id="askBtn" class="send-btn" title="Preguntar">△</button>
+        </div>
+
+        <div class="answer-card" id="answerCard">
+          <div class="answer-header">
+            <h2>Respuesta de la IA</h2>
+            <div class="answer-actions">
+              <button id="copyAnswerBtn" class="icon-action" title="Copiar respuesta">⧉</button>
+              <button id="saveAnswerBtn" class="icon-action" title="Guardar respuesta">⇩</button>
+            </div>
+          </div>
+
+          <div class="answer-box" id="answer">
+            La respuesta aparecerá aquí.
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Desarrollado con OpenAI ·
+      <a href="https://www.iamode.one/" target="_blank" rel="noopener">iaMODE</a>
+    </footer>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
