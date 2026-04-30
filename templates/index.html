@@ -83,6 +83,14 @@
     </footer>
   </div>
 
+  <!-- PDF.js (CLAVE PARA HACERLO RÁPIDO COMO AI STUDIO) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+
+  <!-- TU JS -->
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

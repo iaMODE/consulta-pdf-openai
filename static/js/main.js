@@ -18,22 +18,20 @@ const copyBtn = document.getElementById("copyAnswerBtn");
 const saveBtn = document.getElementById("saveAnswerBtn");
 
 // -----------------------------
-// API KEY (LOCAL STORAGE)
+// API KEY
 // -----------------------------
 const savedKey = localStorage.getItem("openai_api_key");
 if (savedKey) {
   apiKeyInput.value = savedKey;
-  keyStatus.textContent = "API Key cargada correctamente.";
+  keyStatus.textContent = "API Key cargada.";
 }
 
 saveKeyBtn.addEventListener("click", () => {
   const key = apiKeyInput.value.trim();
-
   if (!key) {
     keyStatus.textContent = "Debes pegar una API Key.";
     return;
   }
-
   localStorage.setItem("openai_api_key", key);
   keyStatus.textContent = "API Key guardada.";
 });
@@ -45,7 +43,7 @@ deleteKeyBtn.addEventListener("click", () => {
 });
 
 // -----------------------------
-// REINICIAR APP
+// REINICIAR
 // -----------------------------
 resetBtn.addEventListener("click", () => {
   pdfText = "";
@@ -55,53 +53,52 @@ resetBtn.addEventListener("click", () => {
 });
 
 // -----------------------------
-// SUBIR PDF
+// CARGA PDF (FRONTEND CON PDF.JS)
 // -----------------------------
 pdfFile.addEventListener("change", async () => {
   const file = pdfFile.files[0];
-
   if (!file) return;
 
   if (file.type !== "application/pdf") {
-    pdfTextBox.textContent = "Solo se permiten archivos PDF.";
+    pdfTextBox.textContent = "Solo se permiten PDFs.";
     return;
   }
 
-  pdfTextBox.textContent = "Procesando PDF...";
-  answerBox.textContent = "La respuesta aparecerá aquí.";
+  pdfTextBox.textContent = "Procesando PDF (rápido)...";
   pdfText = "";
 
-  const formData = new FormData();
-  formData.append("file", file);
-
   try {
-    const response = await fetch("/upload_pdf", {
-      method: "POST",
-      body: formData,
-    });
+    const arrayBuffer = await file.arrayBuffer();
 
-    const data = await response.json();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-    if (!response.ok) {
-      throw new Error(data.error || "Error procesando PDF");
+    let fullText = "";
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+
+      const pageText = content.items.map(item => item.str).join(" ");
+
+      fullText += `\n\n--- PÁGINA ${i} ---\n` + pageText;
     }
 
-    pdfText = data.text || "";
+    pdfText = fullText.trim();
 
-    if (!pdfText.trim()) {
-      pdfTextBox.textContent =
-        "No se pudo extraer texto del PDF (puede ser escaneado).";
+    if (!pdfText) {
+      pdfTextBox.textContent = "No se pudo extraer texto (PDF escaneado).";
       return;
     }
 
     pdfTextBox.textContent = pdfText;
-  } catch (error) {
-    pdfTextBox.textContent = "Error: " + error.message;
+
+  } catch (err) {
+    pdfTextBox.textContent = "Error procesando PDF.";
   }
 });
 
 // -----------------------------
-// HACER PREGUNTA
+// PREGUNTAR
 // -----------------------------
 askBtn.addEventListener("click", async () => {
   const apiKey = apiKeyInput.value.trim();
@@ -112,8 +109,8 @@ askBtn.addEventListener("click", async () => {
     return;
   }
 
-  if (!pdfText.trim()) {
-    answerBox.textContent = "Primero debes cargar un PDF.";
+  if (!pdfText) {
+    answerBox.textContent = "Primero carga un PDF.";
     return;
   }
 
@@ -140,39 +137,34 @@ askBtn.addEventListener("click", async () => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || "Error en OpenAI");
+      throw new Error(data.error || "Error IA");
     }
 
     answerBox.textContent = data.answer;
-  } catch (error) {
-    answerBox.textContent = "Error: " + error.message;
+
+  } catch (err) {
+    answerBox.textContent = "Error al consultar.";
   }
 });
 
 // -----------------------------
-// COPIAR RESPUESTA
+// COPIAR
 // -----------------------------
 copyBtn.addEventListener("click", async () => {
   const text = answerBox.textContent;
+  if (!text) return;
 
-  if (!text || text.includes("aparecerá")) return;
-
-  try {
-    await navigator.clipboard.writeText(text);
-    copyBtn.textContent = "✓";
-    setTimeout(() => (copyBtn.textContent = "⧉"), 1000);
-  } catch {
-    alert("No se pudo copiar.");
-  }
+  await navigator.clipboard.writeText(text);
+  copyBtn.textContent = "✓";
+  setTimeout(() => (copyBtn.textContent = "⧉"), 1000);
 });
 
 // -----------------------------
-// GUARDAR RESPUESTA
+// DESCARGAR
 // -----------------------------
 saveBtn.addEventListener("click", () => {
   const text = answerBox.textContent;
-
-  if (!text || text.includes("aparecerá")) return;
+  if (!text) return;
 
   const blob = new Blob([text], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
