@@ -68,23 +68,82 @@ function normalizeText(text) {
     .trim();
 }
 
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function spacedNumberPattern(number) {
+  return number
+    .split("")
+    .map(char => escapeRegExp(char))
+    .join("\\s*");
+}
+
 // -----------------------------
-// DETECTAR MODO LISTA (NUEVO)
+// VARIANTES SINGULAR / PLURAL
+// -----------------------------
+function getWordVariants(word) {
+  const variants = new Set();
+  const clean = normalizeText(word);
+
+  if (!clean) return [];
+
+  variants.add(clean);
+
+  if (clean.endsWith("es") && clean.length > 4) {
+    variants.add(clean.slice(0, -2));
+  }
+
+  if (clean.endsWith("s") && clean.length > 4) {
+    variants.add(clean.slice(0, -1));
+  }
+
+  if (clean.endsWith("z") && clean.length > 3) {
+    variants.add(clean.slice(0, -1) + "ces");
+  }
+
+  if (clean.endsWith("ion") && clean.length > 4) {
+    variants.add(clean + "es");
+  }
+
+  if (clean.endsWith("iones") && clean.length > 6) {
+    variants.add(clean.slice(0, -5) + "ion");
+  }
+
+  if (!clean.endsWith("s")) {
+    variants.add(clean + "s");
+  }
+
+  if (!clean.endsWith("es")) {
+    variants.add(clean + "es");
+  }
+
+  return Array.from(variants).filter(v => v.length >= 3);
+}
+
+// -----------------------------
+// DETECTAR MODO LISTA
 // -----------------------------
 function isListQuery(question) {
   const q = normalizeText(question);
   return (
     q.includes("lista") ||
     q.includes("todos los articulos") ||
+    q.includes("todas las menciones") ||
     q.includes("donde se menciona") ||
+    q.includes("donde se mencione") ||
     q.includes("donde aparezca") ||
+    q.includes("donde aparece") ||
     q.includes("donde se habla") ||
-    q.includes("articulos sobre")
+    q.includes("donde se hable") ||
+    q.includes("articulos sobre") ||
+    q.includes("articulos que hablen") ||
+    q.includes("articulos que traten")
   );
 }
 
 // -----------------------------
-// DETECTAR ARTÍCULOS
+// DETECTAR ARTÍCULOS EN LA PREGUNTA
 // -----------------------------
 function extractArticleNumbers(question) {
   const normalized = normalizeText(question);
@@ -94,7 +153,10 @@ function extractArticleNumbers(question) {
     /articulo\s+(\d+[a-z]?)/gi,
     /articulos\s+(\d+[a-z]?)/gi,
     /art\.?\s*(\d+[a-z]?)/gi,
-    /arts\.?\s*(\d+[a-z]?)/gi
+    /arts\.?\s*(\d+[a-z]?)/gi,
+    /\bart\s+(\d+[a-z]?)/gi,
+    /\bnum\.?\s*(\d+[a-z]?)/gi,
+    /\bnumero\s+(\d+[a-z]?)/gi
   ];
 
   patterns.forEach(pattern => {
@@ -108,36 +170,76 @@ function extractArticleNumbers(question) {
 }
 
 // -----------------------------
-// KEYWORDS
+// PALABRAS CLAVE
 // -----------------------------
 function getKeywords(question) {
-  return normalizeText(question)
+  const stopwords = [
+    "que", "qué", "cual", "cuál", "cuales", "cuáles", "como", "cómo",
+    "donde", "dónde", "cuando", "cuándo", "quien", "quién", "quienes",
+    "de", "del", "la", "las", "el", "los", "un", "una", "unos", "unas",
+    "y", "o", "u", "en", "por", "para", "con", "sin", "sobre", "segun",
+    "según", "al", "a", "me", "se", "es", "son", "dice", "indica",
+    "documento", "pdf", "codigo", "código", "articulo", "artículo",
+    "articulos", "artículos", "pagina", "página", "lista", "todos",
+    "todas", "aparece", "aparezca", "aparecen", "menciona", "mencione",
+    "mencionan", "habla", "hable", "hablen", "trata", "trate", "traten"
+  ];
+
+  const baseKeywords = normalizeText(question)
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
-    .filter(w => w.length >= 4);
+    .filter(word => word.length >= 4 && !stopwords.includes(word));
+
+  const expandedKeywords = new Set();
+
+  baseKeywords.forEach(word => {
+    getWordVariants(word).forEach(variant => expandedKeywords.add(variant));
+  });
+
+  return Array.from(expandedKeywords);
 }
 
 // -----------------------------
-// BUSCAR PÁGINAS
+// BUSCAR PÁGINAS POR ARTÍCULO
 // -----------------------------
-function getRelevantPages(question) {
-  if (!pdfPages.length) return pdfText;
+function getPagesByArticles(articleNumbers) {
+  if (!articleNumbers.length) return [];
 
-  const listMode = isListQuery(question);
-  const keywords = getKeywords(question);
-
-  let selectedPages = [];
+  const matchedPages = [];
 
   pdfPages.forEach(page => {
-    const text = normalizeText(page.text);
+    const normalized = normalizeText(page.text);
     let score = 0;
 
-    keywords.forEach(k => {
-      if (text.includes(k)) score++;
+    articleNumbers.forEach(number => {
+      const safeNumber = escapeRegExp(number);
+      const spacedNumber = spacedNumberPattern(number);
+
+      const articlePatterns = [
+        new RegExp(`\\barticulo\\s+${safeNumber}\\b`, "i"),
+        new RegExp(`\\barticulos\\s+${safeNumber}\\b`, "i"),
+        new RegExp(`\\bart\\.?\\s*${safeNumber}\\b`, "i"),
+        new RegExp(`\\barts\\.?\\s*${safeNumber}\\b`, "i"),
+        new RegExp(`\\bart\\.?\\s*${spacedNumber}\\b`, "i"),
+        new RegExp(`\\barticulo\\s+${spacedNumber}\\b`, "i"),
+        new RegExp(`\\b${safeNumber}\\s*\\.\\s*-`, "i"),
+        new RegExp(`\\b${safeNumber}\\s*-`, "i"),
+        new RegExp(`\\b${safeNumber}\\s*\\.`, "i")
+      ];
+
+      articlePatterns.forEach(pattern => {
+        if (pattern.test(normalized)) {
+          score += 30;
+        }
+      });
+
+      if (normalized.includes(number)) {
+        score += 2;
+      }
     });
 
     if (score > 0) {
-      selectedPages.push({
+      matchedPages.push({
         pageNumber: page.pageNumber,
         text: page.text,
         score
@@ -145,26 +247,85 @@ function getRelevantPages(question) {
     }
   });
 
-  selectedPages = selectedPages.sort((a, b) => b.score - a.score);
+  return matchedPages.sort((a, b) => b.score - a.score);
+}
 
-  // ⚠️ DIFERENCIA CLAVE
-  const limit = listMode ? 15 : 6;
+// -----------------------------
+// BUSCAR PÁGINAS RELEVANTES
+// -----------------------------
+function getRelevantPages(question) {
+  if (!pdfPages.length) return pdfText;
 
-  const pages = selectedPages.slice(0, limit);
+  const listMode = isListQuery(question);
+  const articleNumbers = extractArticleNumbers(question);
+  const articleMatches = getPagesByArticles(articleNumbers);
+  const selectedPageNumbers = new Set();
 
-  const set = new Set();
+  // PRIORIDAD 1: ARTÍCULOS MENCIONADOS
+  if (articleMatches.length) {
+    articleMatches.slice(0, 3).forEach(page => {
+      selectedPageNumbers.add(page.pageNumber - 1);
+      selectedPageNumbers.add(page.pageNumber);
+      selectedPageNumbers.add(page.pageNumber + 1);
+      selectedPageNumbers.add(page.pageNumber + 2);
+    });
 
-  pages.forEach(p => {
-    set.add(p.pageNumber);
-    if (!listMode) {
-      set.add(p.pageNumber - 1);
-      set.add(p.pageNumber + 1);
-    }
+    return pdfPages
+      .filter(page => selectedPageNumbers.has(page.pageNumber))
+      .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
+      .join("");
+  }
+
+  // PRIORIDAD 2: PALABRAS CLAVE / MODO LISTA
+  const keywords = getKeywords(question);
+
+  if (!keywords.length) {
+    return pdfPages
+      .slice(0, 10)
+      .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
+      .join("");
+  }
+
+  const scoredPages = pdfPages.map(page => {
+    const normalized = normalizeText(page.text);
+    let score = 0;
+
+    keywords.forEach(keyword => {
+      const safeKeyword = escapeRegExp(keyword);
+      const matches = normalized.match(new RegExp(`\\b${safeKeyword}\\b`, "g"));
+      if (matches) score += matches.length * 3;
+
+      if (normalized.includes(keyword)) score += 1;
+    });
+
+    return {
+      pageNumber: page.pageNumber,
+      text: page.text,
+      score
+    };
+  });
+
+  const topPages = scoredPages
+    .filter(page => page.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, listMode ? 18 : 6);
+
+  if (!topPages.length) {
+    return pdfPages
+      .slice(0, 10)
+      .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
+      .join("");
+  }
+
+  topPages.forEach(page => {
+    selectedPageNumbers.add(page.pageNumber - 1);
+    selectedPageNumbers.add(page.pageNumber);
+    selectedPageNumbers.add(page.pageNumber + 1);
   });
 
   return pdfPages
-    .filter(p => set.has(p.pageNumber))
-    .map(p => `\n\n--- PÁGINA PDF ${p.pageNumber} ---\n${p.text}`)
+    .filter(page => selectedPageNumbers.has(page.pageNumber))
+    .map(page => `\n\n--- PÁGINA PDF ${page.pageNumber} ---\n${page.text}`)
     .join("");
 }
 
@@ -183,30 +344,94 @@ async function processPdfFile(file) {
   pdfText = "";
   pdfPages = [];
 
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
+    let fullText = "";
 
-    const text = content.items.map(i => i.str).join(" ");
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
 
-    pdfPages.push({
-      pageNumber: i,
-      text
-    });
+      const pageText = content.items.map(item => item.str).join(" ");
+
+      pdfPages.push({
+        pageNumber: i,
+        text: pageText
+      });
+
+      fullText += `\n\n--- PÁGINA PDF ${i} ---\n${pageText}`;
+    }
+
+    pdfText = fullText.trim();
+
+    if (!pdfText) {
+      pdfTextBox.textContent = "No se pudo extraer texto (PDF escaneado).";
+      return;
+    }
+
+    pdfTextBox.textContent = pdfText;
+
+  } catch (err) {
+    pdfTextBox.textContent = "Error procesando PDF: " + err.message;
+    console.error(err);
   }
-
-  pdfTextBox.textContent = "PDF cargado correctamente.";
 }
 
 // -----------------------------
-// ENTER PARA ENVIAR (NUEVO)
+// CARGA PDF CON PDF.JS
 // -----------------------------
-questionInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
+pdfFile.addEventListener("change", async () => {
+  const file = pdfFile.files[0];
+  await processPdfFile(file);
+});
+
+// -----------------------------
+// ARRASTRAR Y SOLTAR PDF
+// -----------------------------
+if (uploadBox) {
+  ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
+    uploadBox.addEventListener(eventName, event => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+  });
+
+  uploadBox.addEventListener("dragover", () => {
+    uploadBox.classList.add("drag-over");
+  });
+
+  uploadBox.addEventListener("dragleave", () => {
+    uploadBox.classList.remove("drag-over");
+  });
+
+  uploadBox.addEventListener("drop", async event => {
+    uploadBox.classList.remove("drag-over");
+
+    const file = event.dataTransfer.files[0];
+
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      pdfTextBox.textContent = "Solo se permiten PDFs.";
+      return;
+    }
+
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    pdfFile.files = dataTransfer.files;
+
+    await processPdfFile(file);
+  });
+}
+
+// -----------------------------
+// ENTER PARA ENVIAR
+// -----------------------------
+questionInput.addEventListener("keydown", event => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
     askBtn.click();
   }
 });
@@ -218,38 +443,78 @@ askBtn.addEventListener("click", async () => {
   const apiKey = apiKeyInput.value.trim();
   const question = questionInput.value.trim();
 
-  if (!apiKey || !pdfPages.length || !question) return;
+  if (!apiKey) {
+    answerBox.textContent = "Debes introducir tu API Key.";
+    return;
+  }
 
+  if (!pdfText) {
+    answerBox.textContent = "Primero carga un PDF.";
+    return;
+  }
+
+  if (!question) {
+    answerBox.textContent = "Escribe una pregunta.";
+    return;
+  }
+
+  const articleNumbers = extractArticleNumbers(question);
   const relevantText = getRelevantPages(question);
+  const listMode = isListQuery(question);
 
-  answerBox.textContent = "Consultando...";
+  answerBox.textContent = listMode
+    ? "Consultando artículos y contextos relevantes..."
+    : "Consultando páginas y artículos relevantes...";
 
-  const response = await fetch("/ask", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: apiKey,
-      pdf_text: relevantText,
-      question
-    })
-  });
+  try {
+    const response = await fetch("/ask", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        pdf_text: relevantText,
+        question: question,
+        detected_articles: articleNumbers,
+        list_mode: listMode
+      }),
+    });
 
-  const data = await response.json();
-  answerBox.textContent = data.answer;
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Error IA");
+    }
+
+    answerBox.textContent = data.answer;
+
+  } catch (err) {
+    answerBox.textContent = "Error al consultar: " + err.message;
+    console.error(err);
+  }
 });
 
 // -----------------------------
 // COPIAR
 // -----------------------------
 copyBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(answerBox.textContent);
+  const text = answerBox.textContent;
+  if (!text) return;
+
+  await navigator.clipboard.writeText(text);
+  copyBtn.textContent = "✓";
+  setTimeout(() => (copyBtn.textContent = "⧉"), 1000);
 });
 
 // -----------------------------
 // DESCARGAR
 // -----------------------------
 saveBtn.addEventListener("click", () => {
-  const blob = new Blob([answerBox.textContent], { type: "text/plain" });
+  const text = answerBox.textContent;
+  if (!text) return;
+
+  const blob = new Blob([text], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");

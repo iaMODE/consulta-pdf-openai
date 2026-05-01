@@ -40,6 +40,7 @@ def ask():
     question = data.get("question")
     api_key = data.get("api_key")
     detected_articles = data.get("detected_articles", [])
+    list_mode = data.get("list_mode", False)
 
     if not api_key:
         return jsonify({"error": "Falta API Key"}), 400
@@ -51,11 +52,15 @@ def ask():
     if detected_articles:
         detected_articles_text = ", ".join(str(article) for article in detected_articles)
 
+    list_mode_text = "No"
+    if list_mode:
+        list_mode_text = "Sí"
+
     try:
         client = OpenAI(api_key=api_key)
 
         prompt = f"""
-Responde únicamente con base en el siguiente documento:
+Responde únicamente con base en el siguiente documento cargado por el usuario:
 
 {pdf_text}
 
@@ -65,12 +70,16 @@ Pregunta del usuario:
 Artículo(s) detectado(s) en la pregunta:
 {detected_articles_text}
 
+Modo lista o exploración temática:
+{list_mode_text}
+
 Reglas obligatorias:
 - Responde de forma directa, breve y exacta.
-- Usa exclusivamente el texto del documento proporcionado.
+- Usa exclusivamente el texto del documento proporcionado en esta consulta.
 - No uses conocimiento externo.
 - No inventes información.
 - No completes datos ausentes.
+- Puedes explicar o reformular el contenido del documento para responder la pregunta, siempre que la respuesta se base estrictamente en el texto proporcionado.
 - Si no encuentras base suficiente en el documento proporcionado, responde exactamente:
 "No se encontró base suficiente en el documento cargado."
 - Cada respuesta debe incluir referencias exactas.
@@ -82,6 +91,26 @@ Reglas obligatorias:
 - No cites páginas que no aparezcan en el texto proporcionado.
 - La "Página PDF" debe salir únicamente del marcador --- PÁGINA PDF X --- incluido en el texto.
 - La "Página oficial" solo debe citarse si aparece claramente como número visible dentro del texto del documento.
+
+Reglas especiales para leyes externas citadas dentro del documento:
+- Si el texto proporcionado menciona otra ley, decreto, resolución, código o norma externa, debes tratarla solo como una cita o referencia interna del documento cargado.
+- No presentes una ley externa citada como si fuera el documento analizado.
+- No expliques el contenido de una ley externa citada, salvo que su contenido aparezca expresamente transcrito en el texto proporcionado.
+- Si una ley externa aparece solo mencionada por nombre o número, aclara que está mencionada en el documento cargado, pero no desarrolles su contenido.
+
+Reglas especiales para artículos y párrafos:
+- No atribuyas un párrafo al artículo que aparece después de ese párrafo.
+- Si un párrafo aparece antes del encabezado de un nuevo artículo, no lo asignes al artículo nuevo.
+- Si el contexto muestra que un párrafo continúa de la página anterior, atribúyelo al artículo anterior solo si el encabezado de ese artículo aparece en el texto proporcionado.
+- Si no puedes determinar con seguridad a qué artículo pertenece un párrafo, dilo expresamente y no inventes la atribución.
+
+Reglas especiales para modo lista o exploración temática:
+- Si el modo lista está activo, organiza la respuesta en viñetas.
+- Incluye solo artículos, párrafos o secciones que estén expresamente respaldados por el texto proporcionado.
+- Para cada elemento listado, indica el contexto exacto de la mención o del tema.
+- No incluyas leyes externas citadas como si fueran artículos del documento cargado.
+- Si mencionas una ley externa citada, aclara que es una referencia interna del documento cargado.
+- No conviertas una simple cita bibliográfica o referencia normativa externa en un artículo sustantivo del documento analizado.
 
 Formato de respuesta:
 Respuesta:
@@ -108,7 +137,7 @@ Reglas de referencia:
             messages=[
                 {
                     "role": "system",
-                    "content": "Eres un asistente jurídico documental. Respondes únicamente con base en el documento proporcionado, sin inventar información y citando referencias exactas."
+                    "content": "Eres un asistente jurídico documental. Respondes únicamente con base en el documento proporcionado, sin inventar información, sin usar conocimiento externo y citando referencias exactas del texto cargado."
                 },
                 {
                     "role": "user",
