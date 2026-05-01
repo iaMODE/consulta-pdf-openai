@@ -10,6 +10,7 @@ const keyStatus = document.getElementById("keyStatus");
 
 const pdfFile = document.getElementById("pdfFile");
 const pdfTextBox = document.getElementById("pdfText");
+const pdfStatusText = document.getElementById("pdfStatusText");
 const uploadBox = document.querySelector(".upload-box");
 
 const questionInput = document.getElementById("question");
@@ -52,6 +53,9 @@ resetBtn.addEventListener("click", () => {
   pdfPages = [];
   pdfFile.value = "";
   pdfTextBox.textContent = "El texto de tu documento aparecerá aquí.";
+  if (pdfStatusText) {
+    pdfStatusText.textContent = "Sube tu PDF y haz preguntas. Obtén información fiel al documento.";
+  }
   questionInput.value = "";
   answerBox.textContent = "La respuesta aparecerá aquí.";
 });
@@ -372,6 +376,10 @@ async function processPdfFile(file) {
     }
 
     pdfTextBox.textContent = pdfText;
+
+    if (pdfStatusText) {
+      pdfStatusText.textContent = `PDF cargado: ${file.name}`;
+    }
 
   } catch (err) {
     pdfTextBox.textContent = "Error procesando PDF: " + err.message;
